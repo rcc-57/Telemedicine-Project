@@ -1,0 +1,15 @@
+# Local Python environment and caches
+.venv/
+.cache/
+__pycache__/
+*.py[cod]
+
+# Downloaded local models
+/models/ollama/
+/models/whisper/
+
+# Local runtime output
+/runtime/
+
+# macOS metadata
+.DS_Store
