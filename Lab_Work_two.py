@@ -1,6 +1,7 @@
 """Учебный UDP-сервер ВКС. Формат сообщений и запуск описаны в README.md."""
 
 import argparse
+import math
 import base64
 import binascii
 import json
@@ -150,6 +151,7 @@ class Application:
                                 "events": [], "created": time.monotonic(),
                                 "last_frame": None}
             self.rooms[code].update(messages=[], images={}, message_seq=0)
+            self.rooms[code].update(transcript=[], transcript_epoch=0, transcript_status="Ожидание запуска врачом")
             return 201, {"room": code, "token": token, "role": "doctor"}
 
         if len(parts) != 3 or parts[0] != "rooms":
@@ -163,6 +165,9 @@ class Application:
             if room["patient"] is not None:
                 raise RequestError(409, "В комнате уже есть пациент")
             room["patient"] = secrets.token_urlsafe(32)
+            room["transcript_epoch"] += 1
+            room["transcript"] = []
+            room["transcript_status"] = "Ожидание запуска врачом"
             return 200, {"room": code, "token": room["patient"], "role": "patient"}
 
         token = request.get("token")
@@ -183,10 +188,49 @@ class Application:
                 room["messages"].clear()
                 room["images"].clear()
                 room.get("media", {}).pop("patient", None)
+                room["transcript_epoch"] += 1
+                room["transcript"] = []
+                room["transcript_status"] = "Ожидание запуска врачом"
             return 200, {"room": code, "left": True, "closed": role == "doctor"}
 
         if action in ("messages", "images"):
             return self.chat(room, role, method, action, body, parse_qs(url.query))
+
+        if action == "transcript":
+            if method == "GET":
+                query = parse_qs(url.query)
+                try:
+                    after = max(0, int(query.get("after", ["0"])[0]))
+                    epoch = int(query.get("epoch", ["-1"])[0])
+                except ValueError:
+                    raise RequestError(400, "Неверный курсор транскрипта")
+                if epoch != room["transcript_epoch"]:
+                    after = 0
+                rows = room["transcript"][after:after + 3]
+                return 200, {"epoch": room["transcript_epoch"], "status": room["transcript_status"],
+                             "rows": rows, "next_after": after + len(rows)}
+            if method != "POST" or role != "doctor":
+                raise RequestError(403, "Транскрипцией управляет только врач")
+            if body.get("epoch") != room["transcript_epoch"]:
+                raise RequestError(409, "Сеанс пациента изменился")
+            if body.get("kind") == "status":
+                status = body.get("text")
+                if not isinstance(status, str) or len(status.encode()) > 1000:
+                    raise RequestError(400, "Неверный статус")
+                room["transcript_status"] = status
+            elif body.get("kind") == "transcript":
+                text, captured = body.get("text"), body.get("captured")
+                if (not isinstance(text, str) or not text or len(text.encode()) > 8000
+                        or body.get("role") not in ("doctor", "patient")
+                        or type(captured) not in (int, float) or not math.isfinite(captured)
+                        or not 0 <= captured <= 4102444800):
+                    raise RequestError(400, "Неверный фрагмент")
+                if len(room["transcript"]) >= 2000:
+                    raise RequestError(409, "Лимит транскрипта исчерпан")
+                room["transcript"].append({"text": text, "captured": captured, "role": body["role"]})
+            else:
+                raise RequestError(400, "Неизвестное действие транскрипта")
+            return 200, {"accepted": True}
 
         if action == "events" and method == "POST":
             if body.get("type") not in ("offer", "answer", "ice") or "data" not in body:

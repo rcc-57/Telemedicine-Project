@@ -154,7 +154,7 @@ class VideoAssembler:
 class MediaConnection:
     """Отдельный сокет звонка: не смешивает медиаданные с ответами чата."""
 
-    def __init__(self, server, room, token):
+    def __init__(self, server, room, token, audio_observer=None):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
         self.sock.connect(server)
@@ -182,6 +182,8 @@ class MediaConnection:
         self.analysis = {"state": "waiting"}
         self.analysis_time = 0
         self.calibration = None
+        self.audio_observer = audio_observer
+        self.observed_audio = set()
         self.thread = threading.Thread(target=self._run, daemon=True, name="UDP media")
         self.thread.start()
 
@@ -253,6 +255,7 @@ class MediaConnection:
                 self.assembler = VideoAssembler()
                 self.in_audio.clear()
                 self.last_audio = -1
+                self.observed_audio.clear()
                 self.video = None
             self.peer_camera = bool(message.get("camera"))
             self.peer_microphone = bool(message.get("microphone"))
@@ -266,10 +269,15 @@ class MediaConnection:
                 jpeg = self.assembler.add(message)
                 if jpeg is not None:
                     self.video, self.video_time = jpeg, time.monotonic()
-            elif kind == "audio" and self.peer_microphone and self.speaker:
+            elif kind == "audio" and self.peer_microphone:
                 data = payload(message)
                 sequence = message["seq"]
-                if sequence > self.last_audio:
+                if self.audio_observer and sequence not in self.observed_audio:
+                    self.observed_audio.add(sequence)
+                    if len(self.observed_audio) > 1000:
+                        self.observed_audio = {n for n in self.observed_audio if n > sequence - 500}
+                    self.audio_observer(sequence, data)
+                if self.speaker and sequence > self.last_audio:
                     self.in_audio[sequence] = data
                     if len(self.in_audio) > 6:
                         self.last_audio = min(self.in_audio)

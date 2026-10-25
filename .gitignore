@@ -1,0 +1,47 @@
+# Local environments and downloaded models
+.venv/
+venv/
+.cache/
+models/ollama/
+models/whisper/
+
+# Python caches and tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# OS / editor files
+.DS_Store
+.AppleDouble/
+._*
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+
+# Private configuration (only sanitized examples may be committed)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_ed25519
+
+# Consultation data, downloads and runtime output
+runtime/
+received_images/
+exports/
+consultation.txt
+consultation*.txt
+consultation*.json
+consultation*.csv
+*.log
